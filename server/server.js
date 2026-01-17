@@ -5,13 +5,18 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import OpenAI from "openai";
 
+console.log("ENV CHECK:", {
+  OPENAI: process.env.OPENAI_API_KEY ? "LOADED" : "MISSING",
+  PORT: process.env.PORT,
+});
+
 /* ----------------------------------
    Validate Environment Variables
 ----------------------------------- */
-if (!process.env.OPENAI_API_KEY) {
-  console.error("OPENAI_API_KEY is missing");
-  process.exit(1);
-}
+// if (!process.env.OPENAI_API_KEY) {
+//   console.error("OPENAI_API_KEY is missing");
+//   process.exit(1);
+// }
 
 /* ----------------------------------
    Initialize App & OpenAI Client
@@ -37,24 +42,27 @@ app.use(
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
 });
 app.use(limiter);
 
 app.use(express.json({ limit: "10mb" }));
 
 /* ----------------------------------
-   Health Check
+   Root & Health Check
 ----------------------------------- */
-app.get("/health", (_, res) => {
-  res.json({ status: "OK", time: new Date().toISOString() });
+app.get("/", (req, res) => {
+  res.send(" Code Explainer API is running");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ status: "OK" });
 });
 
 /* ----------------------------------
-   Explain Code API endpoint
+   Explain Code API
 ----------------------------------- */
 app.post("/api/explain-code", async (req, res) => {
+  console.log("REQ BODY:", req.body);
   try {
     const { code, language } = req.body;
 
@@ -89,7 +97,15 @@ ${code}
       language: language || "unknown",
     });
   } catch (error) {
-    console.error(" Explain Code API Error:", error);
+    console.error("Explain Code API Error:", error);
+    
+    if (error.status === 429 || error.code === "insufficient_quota") {
+      return res.status(429).json({
+        explanation: "Quota exceeded. Please try again later.",
+        language: req.body?.language || "unknown",
+      });
+    }
+
     res.status(500).json({
       error: "Server error",
       message: error.message,
